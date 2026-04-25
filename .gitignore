@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# Env files (секреты — не в репозиторий)
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Node
+node_modules/
+.next/
+out/
+.npm
+*.log
+npm-debug.log*
+
+# Uploads (контент пользователей)
+uploads/
+
+# DB
+*.db
+*.sqlite3
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/

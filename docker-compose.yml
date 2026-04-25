@@ -1,0 +1,83 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: mouse_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mouse_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mouse_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres_password@db:5432/mouse_db
+      SECRET_KEY: change-this-to-a-very-long-random-secret-key-in-production
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      UPLOAD_DIR: /uploads
+      MAX_FILE_SIZE_MB: 50
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost"]'
+    volumes:
+      - uploads_data:/uploads
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Next.js Frontend ──────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api
+        NEXT_PUBLIC_UPLOAD_URL: http://localhost:8000
+    container_name: mouse_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+  # ── Nginx reverse proxy ───────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: mouse_nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - uploads_data:/uploads:ro
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
+  uploads_data:
