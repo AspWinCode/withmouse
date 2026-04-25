@@ -79,7 +79,7 @@ else
 fi
 cd "$APP_DIR"
 
-# -- 5. Generate backend secrets (must happen before writing project .env)
+# -- 5. Generate backend secrets
 if [ ! -f "$APP_DIR/backend/.env" ]; then
   log "Creating backend/.env with random secrets..."
   SECRET=$(openssl rand -hex 32)
@@ -97,14 +97,27 @@ CORS_ORIGINS=["https://${DOMAIN}"]
 ENVEOF
   log "backend/.env created"
 else
-  warn "backend/.env already exists — skipping (delete it to regenerate secrets)"
+  warn "backend/.env already exists — skipping regeneration"
+
+  # Backward-compat: old backend/.env may lack POSTGRES_PASSWORD line.
+  # Derive it from DATABASE_URL if missing.
+  if ! grep -q "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env"; then
+    PGPASS_DERIVED=$(grep "^DATABASE_URL=" "$APP_DIR/backend/.env" \
+      | sed 's|.*://[^:]*:\([^@]*\)@.*|\1|')
+    if [ -n "$PGPASS_DERIVED" ]; then
+      echo "POSTGRES_PASSWORD=${PGPASS_DERIVED}" >> "$APP_DIR/backend/.env"
+      warn "Added missing POSTGRES_PASSWORD to backend/.env (derived from DATABASE_URL)"
+    else
+      err "Cannot determine POSTGRES_PASSWORD. Delete backend/.env and re-run: bash deploy.sh"
+    fi
+  fi
 fi
 
-# -- 6. Write project .env for Docker Compose variable substitution
-# Compose reads <project_dir>/.env automatically and substitutes ${VAR} in yml files.
-# POSTGRES_PASSWORD must be here so db service environment block resolves correctly
-# (env_file on db service is runtime-only and loses to environment: key precedence).
-PGPASS_CURRENT=$(grep "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env" | cut -d= -f2)
+# -- 6. Write project .env — the single source of truth for compose variable substitution.
+# docker-compose.prod.yml uses ${POSTGRES_PASSWORD}, ${DATABASE_URL}, ${SECRET_KEY}, ${CADDY_NETWORK}.
+# These must ALL be in the project-level .env so compose resolves them before starting containers.
+# Note: environment: in compose takes precedence over env_file, so these project .env values
+# will reliably reach both the db and backend containers.
 
 write_env_var() {
   local key="$1" val="$2" file="$3"
@@ -115,9 +128,19 @@ write_env_var() {
   fi
 }
 
-write_env_var "CADDY_NETWORK"   "$CADDY_NETWORK"   "$APP_DIR/.env"
-write_env_var "POSTGRES_PASSWORD" "$PGPASS_CURRENT" "$APP_DIR/.env"
-log "Project .env updated (CADDY_NETWORK, POSTGRES_PASSWORD)"
+PGPASS_CURRENT=$(grep "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env" | cut -d= -f2)
+DBURL_CURRENT=$(grep "^DATABASE_URL=" "$APP_DIR/backend/.env" | cut -d= -f2-)
+SECRET_CURRENT=$(grep "^SECRET_KEY=" "$APP_DIR/backend/.env" | cut -d= -f2)
+
+[ -z "$PGPASS_CURRENT" ] && err "POSTGRES_PASSWORD empty in backend/.env — delete it and re-run"
+[ -z "$DBURL_CURRENT" ]  && err "DATABASE_URL empty in backend/.env — delete it and re-run"
+[ -z "$SECRET_CURRENT" ] && err "SECRET_KEY empty in backend/.env — delete it and re-run"
+
+write_env_var "CADDY_NETWORK"    "$CADDY_NETWORK"    "$APP_DIR/.env"
+write_env_var "POSTGRES_PASSWORD" "$PGPASS_CURRENT"  "$APP_DIR/.env"
+write_env_var "DATABASE_URL"     "$DBURL_CURRENT"    "$APP_DIR/.env"
+write_env_var "SECRET_KEY"       "$SECRET_CURRENT"   "$APP_DIR/.env"
+log "Project .env updated: CADDY_NETWORK, POSTGRES_PASSWORD, DATABASE_URL, SECRET_KEY"
 
 # -- 7. Stop old containers cleanly (removes port locks, orphans, stale state)
 log "Stopping any existing containers for this project..."

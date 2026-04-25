@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: mouse_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+      POSTGRES_PASSWORD: postgres_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,8 +27,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres_password}@db:5432/mouse_db
-      SECRET_KEY: change-this-to-a-very-long-random-secret-key-in-production
+      DATABASE_URL: postgresql://postgres:postgres_password@db:5432/mouse_db
+      SECRET_KEY: dev-secret-key-not-for-production
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 30
       REFRESH_TOKEN_EXPIRE_DAYS: 7
@@ -44,6 +44,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 20s
 
   # -- Next.js Frontend
   frontend:

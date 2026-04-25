@@ -1,15 +1,26 @@
-# Production overrides для домена withmouse.tirskix.space
-# Использование: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Production overrides for withmouse.tirskix.space
+# Uses Caddy (learning-portal-web-1) already running on server for SSL/proxy.
 #
-# ВАЖНО: на сервере уже работает Caddy (learning-portal-web-1) на портах 80/443.
-# Наши контейнеры подключаются к его сети — nginx и certbot НЕ нужны.
+# Project-level .env (written by deploy.sh) must contain:
+#   CADDY_NETWORK      - Docker network name of the Caddy container
+#   POSTGRES_PASSWORD  - DB password (random, generated on first deploy)
+#   DATABASE_URL       - full postgres connection string with the same password
+#   SECRET_KEY         - JWT signing key (random, generated on first deploy)
 
 services:
+  db:
+    # Override the hardcoded local-dev password with the production secret.
+    # environment: takes precedence over env_file, so we set it here explicitly.
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
   backend:
-    env_file:
-      - ./backend/.env
-    expose:
-      - "8000"
+    # Override ALL secrets from base compose with production values from project .env.
+    # Using environment: (not env_file) for unambiguous precedence — no merge surprises.
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SECRET_KEY: ${SECRET_KEY}
+      CORS_ORIGINS: '["https://withmouse.tirskix.space"]'
     networks:
       - default
       - caddy_net
@@ -19,18 +30,9 @@ services:
       args:
         NEXT_PUBLIC_API_URL: https://withmouse.tirskix.space/api
         NEXT_PUBLIC_UPLOAD_URL: https://withmouse.tirskix.space
-    expose:
-      - "3000"
     networks:
       - default
       - caddy_net
-
-  db:
-    # Пароль берём из backend/.env (POSTGRES_PASSWORD)
-    env_file:
-      - ./backend/.env
-    networks:
-      - default
 
 networks:
   default: {}
