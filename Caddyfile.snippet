@@ -1,0 +1,22 @@
+# Добавьте этот блок в Caddyfile на сервере (обычно /etc/caddy/Caddyfile)
+# и выполните: docker exec <caddy_container> caddy reload --config /etc/caddy/Caddyfile
+#
+# deploy.sh делает это автоматически — файл здесь только для справки.
+
+withmouse.tirskix.space {
+    encode gzip
+
+    # Загруженные файлы — из бэкенда
+    reverse_proxy /uploads/* mouse_backend:8000
+
+    # REST API → FastAPI
+    reverse_proxy /api/* mouse_backend:8000
+
+    # Всё остальное → Next.js
+    reverse_proxy * mouse_frontend:3000
+
+    # Кэш для статики загрузок
+    header /uploads/* {
+        Cache-Control "public, max-age=2592000, no-transform"
+    }
+}
