@@ -1,0 +1,22 @@
+# Never bake secrets into the image
+.env
+.env.*
+*.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Dev tools
+.idea/
+.vscode/
+*.swp
+*.swo

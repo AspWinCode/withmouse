@@ -1,6 +1,5 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
-import os
 
 
 class Settings(BaseSettings):
@@ -13,8 +12,13 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int = 50
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        # Read .env if present (local dev convenience), but never fail on unknown vars.
+        # In production the real values come from the container environment directly.
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",   # silently ignore POSTGRES_PASSWORD and any other extra vars
+    )
 
     @property
     def database_url_sync(self) -> str:
