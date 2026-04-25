@@ -127,6 +127,16 @@ for cname in mouse_backend mouse_frontend mouse_db mouse_nginx mouse_certbot; do
   fi
 done
 
+# On first deploy (not update): wipe postgres volume to avoid password mismatch
+# from previous failed attempts. Volume will be re-initialized with the correct
+# password from backend/.env. Use "bash deploy.sh update" to keep existing data.
+if [ "$1" != "update" ]; then
+  if docker volume ls --format '{{.Name}}' | grep -q '^mouse_postgres_data$'; then
+    warn "Removing existing postgres volume for clean init (passwords may differ from failed attempts)"
+    docker volume rm mouse_postgres_data 2>/dev/null || true
+  fi
+fi
+
 # -- 8. Build images
 if [ "$1" = "update" ]; then
   log "Building images (incremental, using cache)..."
@@ -141,66 +151,47 @@ log "Starting services..."
 $COMPOSE $COMPOSE_FILES up -d --remove-orphans
 
 # -- 10. Configure Caddy
+# Strategy: Caddyfile may not be host-bind-mounted (baked into image).
+# We use "docker exec" to check and patch it directly inside the container,
+# then reload. This works regardless of how Caddy was deployed.
 log "Configuring Caddy virtual host for $DOMAIN..."
 
 CADDY_BLOCK="
 # === ${DOMAIN} added by deploy.sh ===
 ${DOMAIN} {
-    encode gzip
-
+    encode gzip zstd
     reverse_proxy /uploads/* mouse_backend:8000
     reverse_proxy /api/* mouse_backend:8000
     reverse_proxy * mouse_frontend:3000
-
-    header /uploads/* {
-        Cache-Control \"public, max-age=2592000, no-transform\"
-    }
 }
 "
 
-CADDYFILE_HOST=$(docker inspect "$CADDY_CONTAINER" \
-  --format '{{range .Mounts}}{{if eq .Destination "/etc/caddy/Caddyfile"}}{{.Source}}{{end}}{{end}}' \
-  2>/dev/null || true)
+# Check if our domain is already present in Caddyfile
+ALREADY=$(docker exec "$CADDY_CONTAINER" grep -c "$DOMAIN" /etc/caddy/Caddyfile 2>/dev/null || echo "0")
 
-if [ -n "$CADDYFILE_HOST" ] && [ -f "$CADDYFILE_HOST" ]; then
-  if grep -q "$DOMAIN" "$CADDYFILE_HOST"; then
-    warn "$DOMAIN already present in Caddyfile — skipping"
-  else
-    log "Appending virtual host to $CADDYFILE_HOST"
-    printf '%s\n' "$CADDY_BLOCK" >> "$CADDYFILE_HOST"
-    log "Reloading Caddy..."
-    docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile --force \
-      && log "Caddy reloaded OK" \
-      || warn "Caddy reload failed — try: docker restart $CADDY_CONTAINER"
-  fi
+if [ "$ALREADY" != "0" ]; then
+  warn "$DOMAIN already present in Caddyfile — skipping"
 else
-  warn "Caddyfile not mounted from host — trying Caddy JSON API..."
+  log "Appending virtual host block to Caddyfile inside $CADDY_CONTAINER..."
 
-  # Discover server key
-  SERVERS_JSON=$(curl -s http://localhost:2019/config/apps/http/servers 2>/dev/null || echo "{}")
-  if echo "$SERVERS_JSON" | grep -q '"srv0"'; then
-    SERVER_KEY="srv0"
+  # Write block to a temp file on host, docker cp into container, then append
+  TMPFILE=$(mktemp)
+  printf '%s\n' "$CADDY_BLOCK" > "$TMPFILE"
+  docker cp "$TMPFILE" "${CADDY_CONTAINER}:/tmp/mouse_caddy_block.txt"
+  rm -f "$TMPFILE"
+
+  docker exec "$CADDY_CONTAINER" sh -c \
+    'cat /tmp/mouse_caddy_block.txt >> /etc/caddy/Caddyfile && rm /tmp/mouse_caddy_block.txt'
+
+  log "Reloading Caddy..."
+  if docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile; then
+    log "Caddy reloaded OK — SSL will be provisioned automatically on first request"
   else
-    SERVER_KEY=$(echo "$SERVERS_JSON" | \
-      python3 -c "import sys,json; d=json.load(sys.stdin); print(list(d.keys())[0])" \
-      2>/dev/null || echo "srv0")
-  fi
-
-  ID="mouse_${DOMAIN//./_}"
-  ROUTE="{\"@id\":\"${ID}\",\"match\":[{\"host\":[\"${DOMAIN}\"]}],\"handle\":[{\"handler\":\"subroute\",\"routes\":[{\"match\":[{\"path\":[\"/uploads/*\",\"/api/*\"]}],\"handle\":[{\"handler\":\"reverse_proxy\",\"upstreams\":[{\"dial\":\"mouse_backend:8000\"}]}]},{\"handle\":[{\"handler\":\"reverse_proxy\",\"upstreams\":[{\"dial\":\"mouse_frontend:3000\"}]}]}]}],\"terminal\":true}"
-
-  RC=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST "http://localhost:2019/config/apps/http/servers/${SERVER_KEY}/routes" \
-    -H "Content-Type: application/json" -d "$ROUTE" 2>/dev/null || echo "000")
-
-  if [ "$RC" = "200" ]; then
-    log "Route added via Caddy API (server=$SERVER_KEY)"
-    warn "This config resets on Caddy restart. Add Caddyfile.snippet manually for persistence."
-  else
-    warn "Caddy API returned $RC"
-    info "Manual step required:"
-    info "  1. Add contents of $APP_DIR/Caddyfile.snippet to Caddy's Caddyfile"
-    info "  2. Run: docker exec $CADDY_CONTAINER caddy reload --config /etc/caddy/Caddyfile"
+    warn "Caddy reload failed. Trying fmt first..."
+    docker exec "$CADDY_CONTAINER" caddy fmt --overwrite /etc/caddy/Caddyfile 2>/dev/null || true
+    docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile \
+      && log "Caddy reloaded OK" \
+      || warn "Reload still failed — check: docker exec $CADDY_CONTAINER caddy validate --config /etc/caddy/Caddyfile"
   fi
 fi
 
