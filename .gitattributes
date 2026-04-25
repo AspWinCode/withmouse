@@ -1,0 +1,52 @@
+# Force LF line endings for all text files on all platforms.
+# This prevents CRLF in shell scripts, .env templates, and config files
+# which would break bash heredocs and env var parsing on Linux.
+
+* text=auto
+
+# Shell scripts: always LF
+*.sh text eol=lf
+
+# Docker and compose files: always LF
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+.dockerignore text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Python: always LF
+*.py text eol=lf
+requirements*.txt text eol=lf
+
+# Config / data: always LF
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.env.example text eol=lf
+
+# Caddyfile snippets: always LF
+Caddyfile* text eol=lf
+*.caddy text eol=lf
+
+# Frontend
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+
+# Binary files: no line ending conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

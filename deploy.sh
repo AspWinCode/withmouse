@@ -80,57 +80,60 @@ fi
 cd "$APP_DIR"
 
 # -- 5. Generate backend secrets
+# Strip any \r (CRLF) from the env file if it already exists — git on Windows
+# stores shell scripts with CRLF, heredoc output on Linux may inherit \r chars.
+strip_cr() { sed -i 's/\r//' "$1" 2>/dev/null || true; }
+
 if [ ! -f "$APP_DIR/backend/.env" ]; then
   log "Creating backend/.env with random secrets..."
   SECRET=$(openssl rand -hex 32)
   PGPASS=$(openssl rand -hex 16)
-  cat > "$APP_DIR/backend/.env" <<ENVEOF
-DATABASE_URL=postgresql://postgres:${PGPASS}@db:5432/mouse_db
-POSTGRES_PASSWORD=${PGPASS}
-SECRET_KEY=${SECRET}
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-UPLOAD_DIR=/uploads
-MAX_FILE_SIZE_MB=50
-CORS_ORIGINS=["https://${DOMAIN}"]
-ENVEOF
+  # Use printf to guarantee LF-only line endings regardless of script encoding
+  printf 'DATABASE_URL=postgresql://postgres:%s@db:5432/mouse_db\n' "$PGPASS" > "$APP_DIR/backend/.env"
+  printf 'POSTGRES_PASSWORD=%s\n' "$PGPASS"   >> "$APP_DIR/backend/.env"
+  printf 'SECRET_KEY=%s\n'        "$SECRET"   >> "$APP_DIR/backend/.env"
+  printf 'ALGORITHM=HS256\n'                  >> "$APP_DIR/backend/.env"
+  printf 'ACCESS_TOKEN_EXPIRE_MINUTES=30\n'   >> "$APP_DIR/backend/.env"
+  printf 'REFRESH_TOKEN_EXPIRE_DAYS=7\n'      >> "$APP_DIR/backend/.env"
+  printf 'UPLOAD_DIR=/uploads\n'              >> "$APP_DIR/backend/.env"
+  printf 'MAX_FILE_SIZE_MB=50\n'              >> "$APP_DIR/backend/.env"
+  printf 'CORS_ORIGINS=["https://%s"]\n' "$DOMAIN" >> "$APP_DIR/backend/.env"
   log "backend/.env created"
 else
   warn "backend/.env already exists — skipping regeneration"
+  # Always strip \r in case the file was previously written with CRLF
+  strip_cr "$APP_DIR/backend/.env"
 
   # Backward-compat: old backend/.env may lack POSTGRES_PASSWORD line.
-  # Derive it from DATABASE_URL if missing.
   if ! grep -q "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env"; then
     PGPASS_DERIVED=$(grep "^DATABASE_URL=" "$APP_DIR/backend/.env" \
-      | sed 's|.*://[^:]*:\([^@]*\)@.*|\1|')
+      | sed 's|.*://[^:]*:\([^@]*\)@.*|\1|' | tr -d '\r')
     if [ -n "$PGPASS_DERIVED" ]; then
-      echo "POSTGRES_PASSWORD=${PGPASS_DERIVED}" >> "$APP_DIR/backend/.env"
+      printf 'POSTGRES_PASSWORD=%s\n' "$PGPASS_DERIVED" >> "$APP_DIR/backend/.env"
       warn "Added missing POSTGRES_PASSWORD to backend/.env (derived from DATABASE_URL)"
     else
-      err "Cannot determine POSTGRES_PASSWORD. Delete backend/.env and re-run: bash deploy.sh"
+      err "Cannot determine POSTGRES_PASSWORD. Delete backend/.env and re-run."
     fi
   fi
 fi
 
-# -- 6. Write project .env — the single source of truth for compose variable substitution.
-# docker-compose.prod.yml uses ${POSTGRES_PASSWORD}, ${DATABASE_URL}, ${SECRET_KEY}, ${CADDY_NETWORK}.
-# These must ALL be in the project-level .env so compose resolves them before starting containers.
-# Note: environment: in compose takes precedence over env_file, so these project .env values
-# will reliably reach both the db and backend containers.
+# -- 6. Write project .env — single source of truth for compose variable substitution.
+# docker-compose.prod.yml references ${POSTGRES_PASSWORD}, ${DATABASE_URL}, ${SECRET_KEY},
+# ${CADDY_NETWORK}. All must be in project .env for compose to resolve them correctly.
 
 write_env_var() {
   local key="$1" val="$2" file="$3"
   if grep -q "^${key}=" "$file" 2>/dev/null; then
     sed -i "s|^${key}=.*|${key}=${val}|" "$file"
   else
-    echo "${key}=${val}" >> "$file"
+    printf '%s=%s\n' "$key" "$val" >> "$file"
   fi
 }
 
-PGPASS_CURRENT=$(grep "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env" | cut -d= -f2)
-DBURL_CURRENT=$(grep "^DATABASE_URL=" "$APP_DIR/backend/.env" | cut -d= -f2-)
-SECRET_CURRENT=$(grep "^SECRET_KEY=" "$APP_DIR/backend/.env" | cut -d= -f2)
+# Read values and strip any accidental \r (CRLF artefact)
+PGPASS_CURRENT=$(grep "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env" | cut -d= -f2 | tr -d '\r')
+DBURL_CURRENT=$(grep  "^DATABASE_URL="      "$APP_DIR/backend/.env" | cut -d= -f2- | tr -d '\r')
+SECRET_CURRENT=$(grep "^SECRET_KEY="        "$APP_DIR/backend/.env" | cut -d= -f2  | tr -d '\r')
 
 [ -z "$PGPASS_CURRENT" ] && err "POSTGRES_PASSWORD empty in backend/.env — delete it and re-run"
 [ -z "$DBURL_CURRENT" ]  && err "DATABASE_URL empty in backend/.env — delete it and re-run"
