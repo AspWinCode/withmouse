@@ -89,7 +89,7 @@ if [ ! -f "$APP_DIR/backend/.env" ]; then
   SECRET=$(openssl rand -hex 32)
   PGPASS=$(openssl rand -hex 16)
   # Use printf to guarantee LF-only line endings regardless of script encoding
-  printf 'DATABASE_URL=postgresql://postgres:%s@db:5432/mouse_db\n' "$PGPASS" > "$APP_DIR/backend/.env"
+  printf 'DATABASE_URL=postgresql://postgres:%s@mouse_db:5432/mouse_db\n' "$PGPASS" > "$APP_DIR/backend/.env"
   printf 'POSTGRES_PASSWORD=%s\n' "$PGPASS"   >> "$APP_DIR/backend/.env"
   printf 'SECRET_KEY=%s\n'        "$SECRET"   >> "$APP_DIR/backend/.env"
   printf 'ALGORITHM=HS256\n'                  >> "$APP_DIR/backend/.env"
@@ -103,6 +103,12 @@ else
   warn "backend/.env already exists — skipping regeneration"
   # Always strip \r in case the file was previously written with CRLF
   strip_cr "$APP_DIR/backend/.env"
+  # Fix old DATABASE_URL that used "db" hostname — now it must be "mouse_db"
+  # to avoid DNS collision with other "db" containers on the shared Caddy network.
+  if grep -q "@db:5432/" "$APP_DIR/backend/.env"; then
+    sed -i 's|@db:5432/|@mouse_db:5432/|g' "$APP_DIR/backend/.env"
+    warn "Fixed DATABASE_URL hostname: db -> mouse_db in backend/.env"
+  fi
 
   # Backward-compat: old backend/.env may lack POSTGRES_PASSWORD line.
   if ! grep -q "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env"; then

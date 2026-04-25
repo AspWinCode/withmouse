@@ -1,6 +1,8 @@
 services:
   # -- PostgreSQL
-  db:
+  # Service name is "mouse_db" (not "db") to avoid DNS collision when backend
+  # joins the Caddy network which may also have a container named "db".
+  mouse_db:
     image: postgres:16-alpine
     container_name: mouse_db
     restart: unless-stopped
@@ -24,10 +26,10 @@ services:
     container_name: mouse_backend
     restart: unless-stopped
     depends_on:
-      db:
+      mouse_db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:postgres_password@db:5432/mouse_db
+      DATABASE_URL: postgresql://postgres:postgres_password@mouse_db:5432/mouse_db
       SECRET_KEY: dev-secret-key-not-for-production
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 30

@@ -8,7 +8,7 @@
 #   SECRET_KEY         - JWT signing key (random, generated on first deploy)
 
 services:
-  db:
+  mouse_db:
     # Override the hardcoded local-dev password with the production secret.
     # environment: takes precedence over env_file, so we set it here explicitly.
     environment:
