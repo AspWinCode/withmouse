@@ -1,14 +1,9 @@
-version: "3.9"
 # Production overrides для домена withmouse.tirskix.space
 # Использование: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
   backend:
-    environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres_strong_pass}@db:5432/mouse_db
-      SECRET_KEY: ${SECRET_KEY}
-      CORS_ORIGINS: '["https://withmouse.tirskix.space"]'
-      UPLOAD_DIR: /uploads
+    # Все переменные берём из backend/.env — не нужно дублировать здесь
     env_file:
       - ./backend/.env
 
