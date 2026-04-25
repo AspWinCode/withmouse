@@ -37,9 +37,8 @@ services:
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:8000"]'
     volumes:
       - uploads_data:/uploads
-    # Local dev: access API directly on localhost:8000
-    ports:
-      - "127.0.0.1:8000:8000"
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
@@ -58,9 +57,8 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-    # Local dev: access frontend directly on localhost:3000
-    ports:
-      - "127.0.0.1:3000:3000"
+    expose:
+      - "3000"
 
 volumes:
   postgres_data:
