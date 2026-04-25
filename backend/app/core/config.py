@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import List
-import json
+import os
 
 
 class Settings(BaseSettings):
@@ -15,6 +15,17 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+
+    @property
+    def database_url_sync(self) -> str:
+        """
+        Railway отдаёт DATABASE_URL в виде postgres:// или postgresql://.
+        SQLAlchemy требует postgresql+psycopg2://.
+        """
+        url = self.DATABASE_URL
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        return url
 
 
 settings = Settings()

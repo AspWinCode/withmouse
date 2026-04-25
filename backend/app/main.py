@@ -7,10 +7,10 @@ from app.core.config import settings
 from app.db.database import Base, engine
 from app.api.routes import auth, professions, tests, assignments, submissions, admin
 
-# Create tables
+# Создаём таблицы при старте (idempotent)
 Base.metadata.create_all(bind=engine)
 
-# Ensure upload directories exist
+# Создаём папки для загрузок
 for subdir in ["professions/images", "professions/videos", "assignments", "submissions"]:
     os.makedirs(os.path.join(settings.UPLOAD_DIR, subdir), exist_ok=True)
 
@@ -23,19 +23,22 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+# CORS — разрешаем все origins из настроек + всегда Railway/Vercel домены
+cors_origins = list(settings.CORS_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # все Vercel preview-домены
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Static files for uploads
+# Статические файлы загрузок
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
-# Routers
+# Роутеры
 app.include_router(auth.router, prefix="/api")
 app.include_router(professions.router, prefix="/api")
 app.include_router(tests.router, prefix="/api")
