@@ -24,4 +24,4 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     test_attempts = relationship("TestAttempt", back_populates="student")
-    submissions = relationship("Submission", back_populates="student")
+    submissions = relationship("Submission", foreign_keys="Submission.student_id", back_populates="student")
