@@ -79,22 +79,7 @@ else
 fi
 cd "$APP_DIR"
 
-# -- 5. Write CADDY_NETWORK to project .env so compose picks it up automatically
-# Docker Compose reads <project_dir>/.env automatically for variable substitution.
-# We write CADDY_NETWORK there so we never need to prefix every compose command.
-if [ -f "$APP_DIR/.env" ]; then
-  # Update existing value
-  if grep -q "^CADDY_NETWORK=" "$APP_DIR/.env"; then
-    sed -i "s|^CADDY_NETWORK=.*|CADDY_NETWORK=${CADDY_NETWORK}|" "$APP_DIR/.env"
-  else
-    echo "CADDY_NETWORK=${CADDY_NETWORK}" >> "$APP_DIR/.env"
-  fi
-else
-  echo "CADDY_NETWORK=${CADDY_NETWORK}" > "$APP_DIR/.env"
-fi
-log "CADDY_NETWORK=${CADDY_NETWORK} written to .env"
-
-# -- 6. Generate backend secrets
+# -- 5. Generate backend secrets (must happen before writing project .env)
 if [ ! -f "$APP_DIR/backend/.env" ]; then
   log "Creating backend/.env with random secrets..."
   SECRET=$(openssl rand -hex 32)
@@ -114,6 +99,25 @@ ENVEOF
 else
   warn "backend/.env already exists — skipping (delete it to regenerate secrets)"
 fi
+
+# -- 6. Write project .env for Docker Compose variable substitution
+# Compose reads <project_dir>/.env automatically and substitutes ${VAR} in yml files.
+# POSTGRES_PASSWORD must be here so db service environment block resolves correctly
+# (env_file on db service is runtime-only and loses to environment: key precedence).
+PGPASS_CURRENT=$(grep "^POSTGRES_PASSWORD=" "$APP_DIR/backend/.env" | cut -d= -f2)
+
+write_env_var() {
+  local key="$1" val="$2" file="$3"
+  if grep -q "^${key}=" "$file" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+  else
+    echo "${key}=${val}" >> "$file"
+  fi
+}
+
+write_env_var "CADDY_NETWORK"   "$CADDY_NETWORK"   "$APP_DIR/.env"
+write_env_var "POSTGRES_PASSWORD" "$PGPASS_CURRENT" "$APP_DIR/.env"
+log "Project .env updated (CADDY_NETWORK, POSTGRES_PASSWORD)"
 
 # -- 7. Stop old containers cleanly (removes port locks, orphans, stale state)
 log "Stopping any existing containers for this project..."
